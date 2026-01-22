@@ -1,0 +1,21 @@
+.env
+.DS_Store
+*.log
+*.pid
+
+# Node
+npm-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Docker
+**/data/
+**/tmp/
+
