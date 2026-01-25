@@ -30,3 +30,20 @@ allowed_schema_registry_clients:
   - 185.39.79.97
   - 203.31.40.44
 
+# Декларативный список топиков, которые должны существовать в кластере.
+# Создаются после деплоя (idempotent: --if-not-exists).
+kafka_topics:
+  - name: subscriber-events
+    partitions: 3
+    replication_factor: 1
+    # configs задаются как kafka topic configs (retention.ms, cleanup.policy, max.message.bytes, ...)
+    configs:
+      retention.ms: 604800000   # 7 дней
+
+  # Топик только для батчей уведомлений (в т.ч. токены) — отделяем от бизнес-событий.
+  # Стартово 12 партиций: хороший баланс для параллелизма notification service.
+  - name: subscriber-push
+    partitions: 12
+    replication_factor: 1
+    configs:
+      retention.ms: 259200000   # 3 дня (достаточно для ретраев/разборов)

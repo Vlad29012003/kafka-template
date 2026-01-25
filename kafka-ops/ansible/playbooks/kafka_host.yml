@@ -111,3 +111,43 @@
       args:
         executable: /bin/bash
 
+    - name: Дождаться контейнера Kafka (Swarm task)
+      ansible.builtin.shell: |
+        set -e
+        for i in $(seq 1 60); do
+          cid="$(docker ps \
+            --filter "label=com.docker.swarm.service.name={{ stack_name }}_kafka" \
+            --format '{{"{{"}}.ID{{"}}"}}' | head -n1)"
+          if [ -n "$cid" ]; then
+            echo "$cid"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Kafka container not found" >&2
+        exit 1
+      args:
+        executable: /bin/bash
+      register: kafka_container_id
+      changed_when: false
+
+    - name: Создать топики (idempotent)
+      ansible.builtin.shell: |
+        set -e
+        cid="{{ kafka_container_id.stdout }}"
+        docker exec -i "$cid" kafka-topics \
+          --bootstrap-server localhost:9092 \
+          --create \
+          --if-not-exists \
+          --topic "{{ item.name }}" \
+          --partitions "{{ item.partitions | default(3) }}" \
+          --replication-factor "{{ item.replication_factor | default(1) }}" \
+          {% for k, v in (item.configs | default({})).items() -%}
+          --config {{ k }}={{ v }} \
+          {% endfor -%}
+          >/dev/null
+      args:
+        executable: /bin/bash
+      loop: "{{ kafka_topics | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
