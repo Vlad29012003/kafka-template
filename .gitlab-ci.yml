@@ -1,5 +1,6 @@
 stages:
   - validate
+  - deploy
 
 # Минимальная валидация: проверяем, что docker-compose.yml синтаксически корректен.
 # Полный end-to-end smoke-test (поднять Kafka и прогнать produce/consume) возможен,
@@ -18,4 +19,49 @@ validate:compose:
     - cd kafka-infrastructure/docker
     - docker compose version
     - docker compose config >/dev/null
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+# Деплой в Swarm через SSH на Kafka-host (runner может быть где угодно).
+# Требования:
+# - Runner с тегом template_runner или swarm
+# - SSH доступ к Kafka-host и установленный Docker/Swarm на нём
+deploy:swarm_dev:
+  stage: deploy
+  tags:
+    - template_runner
+  when: manual
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache openssh-client rsync
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    # DEPLOY_SSH_PRIVATE_KEY хранится в GitLab CI/CD Variables (masked, protected)
+    - echo "$DEPLOY_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    # DEPLOY_HOST_KEY можно не хранить, тогда используем ssh-keyscan (меньше строгости, но быстро)
+    - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+  script:
+    # Синхронизируем kafka-infrastructure на сервер
+    - rsync -az --delete ./kafka-infrastructure/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
+    # Пишем .env на сервере из GitLab Variables
+    - |
+      ssh "$DEPLOY_USER@$DEPLOY_HOST" "cat > '$DEPLOY_DIR/.env' <<'EOF'
+      KAFKA_PORT=${KAFKA_PORT}
+      SCHEMA_REGISTRY_PORT=${SCHEMA_REGISTRY_PORT}
+      KAFKA_NODE_ID=${KAFKA_NODE_ID}
+      KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
+      KAFKA_ADVERTISED_HOST=${KAFKA_ADVERTISED_HOST}
+      STACK_NAME=${STACK_NAME}
+      EOF"
+    # Деплой стека (docker stack deploy не читает .env сам — поэтому экспортим переменные)
+    - |
+      ssh "$DEPLOY_USER@$DEPLOY_HOST" "set -e
+      cd '$DEPLOY_DIR'
+      set -a; . ./.env; set +a
+      docker info >/dev/null
+      docker stack deploy --compose-file docker/docker-stack.yml \"${STACK_NAME}\""
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
 
