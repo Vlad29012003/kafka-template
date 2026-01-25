@@ -7,13 +7,8 @@ stages:
 # но требует runner'а с Docker-in-Docker и настройкой privileged.
 validate:compose:
   stage: validate
-  image: docker:27
-  services:
-    - name: docker:27-dind
-      command: ["--tls=false"]
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
+  tags:
+    - kafka_infra
   script:
     - docker version
     - cd kafka-infrastructure/docker
@@ -23,45 +18,34 @@ validate:compose:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
 
-# Деплой в Swarm через SSH на Kafka-host (runner может быть где угодно).
+# Деплой в Swarm (shell-runner на Kafka-host / manager-нода).
 # Требования:
-# - Runner с тегом template_runner или swarm
-# - SSH доступ к Kafka-host и установленный Docker/Swarm на нём
+# - GitLab Runner установлен на 185.28.85.126
+# - Runner имеет tag "kafka_infra"
+# - Runner пользователь имеет доступ к docker
 deploy:swarm_dev:
   stage: deploy
   tags:
-    - template_runner
+    - kafka_infra
   when: manual
-  image: alpine:3.20
-  before_script:
-    - apk add --no-cache openssh-client rsync
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    # DEPLOY_SSH_PRIVATE_KEY хранится в GitLab CI/CD Variables (masked, protected)
-    - echo "$DEPLOY_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
-    - chmod 600 ~/.ssh/id_rsa
-    # DEPLOY_HOST_KEY можно не хранить, тогда используем ssh-keyscan (меньше строгости, но быстро)
-    - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
   script:
-    # Синхронизируем kafka-infrastructure на сервер
-    - rsync -az --delete ./kafka-infrastructure/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/"
-    # Пишем .env на сервере из GitLab Variables
+    - cd kafka-infrastructure
+    # Пишем .env из GitLab Variables (Settings → CI/CD → Variables)
     - |
-      ssh "$DEPLOY_USER@$DEPLOY_HOST" "cat > '$DEPLOY_DIR/.env' <<'EOF'
+      cat > .env <<'EOF'
       KAFKA_PORT=${KAFKA_PORT}
       SCHEMA_REGISTRY_PORT=${SCHEMA_REGISTRY_PORT}
       KAFKA_NODE_ID=${KAFKA_NODE_ID}
       KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
       KAFKA_ADVERTISED_HOST=${KAFKA_ADVERTISED_HOST}
       STACK_NAME=${STACK_NAME}
-      EOF"
-    # Деплой стека (docker stack deploy не читает .env сам — поэтому экспортим переменные)
-    - |
-      ssh "$DEPLOY_USER@$DEPLOY_HOST" "set -e
-      cd '$DEPLOY_DIR'
-      set -a; . ./.env; set +a
-      docker info >/dev/null
-      docker stack deploy --compose-file docker/docker-stack.yml \"${STACK_NAME}\""
+      EOF
+    # docker stack deploy не читает .env сам — поэтому экспортим переменные
+    - set -a
+    - . ./.env
+    - set +a
+    - docker info >/dev/null
+    - docker stack deploy --compose-file docker/docker-stack.yml "${STACK_NAME}"
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
 
