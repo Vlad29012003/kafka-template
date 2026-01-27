@@ -14,7 +14,9 @@ services:
       # Слушатели:
       # - PLAINTEXT://kafka:29092          (внутри overlay сети для Schema Registry и внутренних клиентов)
       # - PLAINTEXT_HOST://0.0.0.0:9092   (наружу на хост по published порту)
-      KAFKA_LISTENERS: "PLAINTEXT://kafka:29092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:9092"
+      # Важно для Swarm: биндимся на 0.0.0.0, а не на service-name (kafka),
+      # иначе можно получить "Cannot assign requested address" при старте acceptor'а CONTROLLER.
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092"
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_PORT:-9092}"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
