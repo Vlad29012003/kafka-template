@@ -18,7 +18,5 @@ docker compose --env-file ../.env up -d
 
 ## Сервер (Swarm)
 
-- Подготовка сервера (установка Docker, firewall, инициализация Swarm) вынесена за рамки этого репозитория.
-- Рекомендуется делать это через Ansible/Terraform или отдельный ops-репозиторий.
-- См. `docs/DEPLOYMENT.md`.
+- Подготовка хоста (Docker, Swarm, firewall) и выкладка через GitLab CI — в `DEPLOYMENT.md`.
 

@@ -1,3 +1,6 @@
+# Опционально: UI для кластера из docker/docker-compose.yml (сеть kafka-infra).
+# Запуск из каталога kafka-infrastructure/docker/kafka-ui:
+#   docker compose --env-file ../../.env up -d
 version: "3.8"
 
 services:
@@ -10,20 +13,13 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
       KAFKA_CLUSTERS_0_SCHEMAREGISTRY: "http://schema-registry:8081"
 
-      # ===== AUTH =====
       AUTH_TYPE: "LOGIN_FORM"
-
       SPRING_SECURITY_USER_NAME: "admin"
-      SPRING_SECURITY_USER_PASSWORD: "*hjvfirf!"
-      # =================
+      SPRING_SECURITY_USER_PASSWORD: "${KAFKA_UI_ADMIN_PASSWORD:-changeme}"
 
     networks:
-      - kafka_kafka
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
+      - kafka-infra
 
 networks:
-  kafka_kafka:
+  kafka-infra:
     external: true

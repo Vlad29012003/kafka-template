@@ -9,28 +9,23 @@ cp env.example .env
 
 ## Swarm (prod)
 
-1) Подготовка сервера:
+### Через GitLab CI (основной сценарий)
 
-- Установите Docker + docker compose plugin на manager-ноду.
-- Инициализируйте Swarm и настройте firewall.
-- Рекомендуется автоматизировать это через Ansible/Terraform или отдельный ops-репозиторий.
+1) На manager-ноде один раз: Docker, Docker Compose plugin, инициализация Swarm, firewall по политике команды; зарегистрированный **GitLab Runner** с тегом из `.gitlab-ci.yml` (например `kafka_infra`) и доступом к `docker`.
 
-2) Деплой:
+2) В GitLab: **Settings → CI/CD → Variables** — переменные, которые подставляются в job `deploy:swarm_dev` (см. `.gitlab-ci.yml`).
+
+3) Запуск pipeline на ветке `dev` → ручной job **deploy:swarm_dev** выполнит `docker stack deploy` из каталога `kafka-infrastructure/`.
+
+### Вручную на сервере (без CI)
 
 ```bash
 cp env.example .env
+# заполнить .env
 ./scripts/deploy/deploy-prod.sh
 ```
 
-### Рекомендуемый вариант (физические сервера): Ansible
-
-См. `kafka-ops/README.md` — там есть playbook, который:
-- ставит Docker на Debian,
-- (опционально) настраивает firewall allowlist,
-- копирует `kafka-infrastructure/` на Kafka-host,
-- делает `docker stack deploy`.
-
-3) Проверка:
+### Проверка
 
 ```bash
 docker stack services ${STACK_NAME:-kafka}
