@@ -1,46 +1,10 @@
-# kafka-infrastructure
+# kafka-template
 
-Инфраструктурный шаблон для локального запуска Kafka и Schema Registry (Docker Compose) и деплоя на сервер (Docker Swarm stack).
+Репозиторий с инфраструктурой Kafka (KRaft) и Schema Registry.
 
-## Быстрый старт (локально)
+## Где всё лежит
 
-1) Скопируйте переменные окружения:
+**Каноническая копия** шаблона — каталог [`kafka-infrastructure/`](kafka-infrastructure/README.md): Docker Compose, Swarm stack, скрипты, документация, схемы.
 
-```bash
-cp env.example .env
-```
-
-2) Поднимите сервисы:
-
-```bash
-cd docker
-docker compose --env-file ../.env up -d
-```
-
-3) Проверка здоровья:
-
-```bash
-../scripts/utils/health-check.sh
-```
-
-4) Создание топиков (пример):
-
-```bash
-../scripts/topics/create-topics.sh
-```
-
-## Структура
-
-- `docker/`: compose/stack манифесты
-- `configs/`: доп. конфиги Kafka/Schema Registry (справочно; ключевые настройки задаются через env)
-- `schemas/`: примеры JSON/Avro схем
-- `scripts/`: установка/деплой/топики/утилиты
-- `docs/`: документация (установка, деплой, архитектура, troubleshooting)
-- `monitoring/`: опциональная заготовка Prometheus/Grafana
-- `.gitlab-ci.yml`: (в корне репозитория) минимальная CI-валидация compose (опционально)
-
-## Полезные адреса (по умолчанию)
-
-- Kafka: `localhost:9092`
-- Schema Registry: `http://localhost:8081`
-
+- **GitLab CI** (`.gitlab-ci.yml`): валидация compose и ручной деплой Swarm с runner’а на хосте — см. [kafka-infrastructure/docs/DEPLOYMENT.md](kafka-infrastructure/docs/DEPLOYMENT.md).
+- Быстрый старт и структура каталогов — в [kafka-infrastructure/README.md](kafka-infrastructure/README.md).

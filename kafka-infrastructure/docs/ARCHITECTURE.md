@@ -15,5 +15,6 @@
 
 - `docker/docker-compose.yml`: локальный запуск
 - `docker/docker-stack.yml`: деплой в Swarm
-- `configs/*`: дополнительные настройки сервисов (монтируются в контейнеры)
+- `configs/*`: справочные `*.properties` (образы Confluent настраиваются через env в compose/stack; файлы в контейнер не монтируются)
+- `docker/kafka-ui/docker-compose.yml`: опциональный Kafka UI (внешняя сеть `kafka-infra` после `docker compose up` основного файла)
 
