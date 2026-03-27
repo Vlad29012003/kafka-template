@@ -30,11 +30,9 @@ if [[ -n "${1:-}" ]]; then
     exit 1
   fi
 elif [[ -n "${ROLLBACK_COMMIT_SHA:-}" ]]; then
-  (
-    cd "${ROOT_DIR}/.."
-    git fetch origin "${ROLLBACK_COMMIT_SHA}"
-    git checkout "${ROLLBACK_COMMIT_SHA}" -- kafka-infrastructure/docker/docker-stack.yml
-  )
+  REPO_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
+  bash "${ROOT_DIR}/scripts/deploy/resolve-rollback-commit.sh" "${ROLLBACK_COMMIT_SHA}"
+  git -C "${REPO_ROOT}" checkout "${ROLLBACK_COMMIT_SHA}" -- kafka-infrastructure/docker/docker-stack.yml
   COMPOSE_FILE="${ROOT_DIR}/docker/docker-stack.yml"
 else
   usage

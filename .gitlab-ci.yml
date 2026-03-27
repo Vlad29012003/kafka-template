@@ -43,7 +43,7 @@ validate:compose:
       export KAFKA_KRAFT_CLUSTER_ID="${CI_KAFKA_KRAFT_CLUSTER_ID}"
       docker compose -f docker-stack.yml config >/dev/null
     - |
-      export KAFKA_UI_ADMIN_PASSWORD="${CI_KAFKA_UI_ADMIN_PASSWORD:-ci-placeholder}"
+      export KAFKA_UI_ADMIN_PASSWORD="${KAFKA_UI_ADMIN_PASSWORD:?KAFKA_UI_ADMIN_PASSWORD required (Kafka UI; задайте в GitLab CI/CD Variables, masked)}"
       docker compose -f kafka-ui/docker-compose.yml config >/dev/null
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -61,7 +61,6 @@ deploy:swarm:
   when: manual
   script:
     - cd kafka-infrastructure
-    # Preflight: обязательные переменные CI/CD
     - |
       set -euo pipefail
       : "${KAFKA_PORT:?required}"
@@ -69,31 +68,21 @@ deploy:swarm:
       : "${KAFKA_KRAFT_CLUSTER_ID:?required}"
       : "${KAFKA_ADVERTISED_HOST:?required}"
       : "${STACK_NAME:?required}"
-    - |
-      cat > .env <<EOF
-      KAFKA_PORT=${KAFKA_PORT}
-      SCHEMA_REGISTRY_PORT=${SCHEMA_REGISTRY_PORT}
-      KAFKA_NODE_ID=${KAFKA_NODE_ID}
-      KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
-      KAFKA_ADVERTISED_HOST=${KAFKA_ADVERTISED_HOST}
-      STACK_NAME=${STACK_NAME}
-      KAFKA_CONTROLLER_QUORUM_VOTERS=${KAFKA_CONTROLLER_QUORUM_VOTERS}
-      KAFKA_DEFAULT_REPLICATION_FACTOR=${KAFKA_DEFAULT_REPLICATION_FACTOR}
-      KAFKA_MIN_INSYNC_REPLICAS=${KAFKA_MIN_INSYNC_REPLICAS}
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR}
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR}
-      EOF
+    - bash scripts/deploy/write-stack-env.sh .env
     - set -a
     - . ./.env
     - set +a
     - docker info >/dev/null
+    - bash scripts/deploy/ensure-kafka-node-label.sh
     - docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
+    - |
+      printf '{"ci_commit_sha":"%s","stack_name":"%s","manifest":"docker/docker-stack.yml"}\n' \
+        "${CI_COMMIT_SHA}" "${STACK_NAME}" > docker/deploy-manifest.json
   artifacts:
     name: "stack-manifest-${CI_COMMIT_SHORT_SHA}"
     paths:
       - kafka-infrastructure/docker/docker-stack.yml
-      - kafka-infrastructure/.env
+      - kafka-infrastructure/docker/deploy-manifest.json
     expire_in: 30 days
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
@@ -118,27 +107,14 @@ rollback:swarm:
       : "${KAFKA_KRAFT_CLUSTER_ID:?required}"
       : "${KAFKA_ADVERTISED_HOST:?required}"
       : "${STACK_NAME:?required}"
-    - git fetch origin "${ROLLBACK_COMMIT_SHA}"
+    - bash kafka-infrastructure/scripts/deploy/resolve-rollback-commit.sh "${ROLLBACK_COMMIT_SHA}"
     - git checkout "${ROLLBACK_COMMIT_SHA}" -- kafka-infrastructure/docker/docker-stack.yml
     - cd kafka-infrastructure
-    - |
-      cat > .env <<EOF
-      KAFKA_PORT=${KAFKA_PORT}
-      SCHEMA_REGISTRY_PORT=${SCHEMA_REGISTRY_PORT}
-      KAFKA_NODE_ID=${KAFKA_NODE_ID}
-      KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
-      KAFKA_ADVERTISED_HOST=${KAFKA_ADVERTISED_HOST}
-      STACK_NAME=${STACK_NAME}
-      KAFKA_CONTROLLER_QUORUM_VOTERS=${KAFKA_CONTROLLER_QUORUM_VOTERS}
-      KAFKA_DEFAULT_REPLICATION_FACTOR=${KAFKA_DEFAULT_REPLICATION_FACTOR}
-      KAFKA_MIN_INSYNC_REPLICAS=${KAFKA_MIN_INSYNC_REPLICAS}
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR}
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR}
-      EOF
+    - bash scripts/deploy/write-stack-env.sh .env
     - set -a
     - . ./.env
     - set +a
+    - bash scripts/deploy/ensure-kafka-node-label.sh
     - docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
@@ -151,12 +127,21 @@ verify:stack:
     - kafka_infra
   needs:
     - job: deploy:swarm
-      artifacts: true
+      artifacts: false
   script:
     - cd kafka-infrastructure
+    - |
+      set -euo pipefail
+      : "${KAFKA_PORT:?required}"
+      : "${SCHEMA_REGISTRY_PORT:?required}"
+      : "${KAFKA_KRAFT_CLUSTER_ID:?required}"
+      : "${KAFKA_ADVERTISED_HOST:?required}"
+      : "${STACK_NAME:?required}"
+    - bash scripts/deploy/write-stack-env.sh .env
     - set -a
     - . ./.env
     - set +a
+    - export KAFKA_HOST="${VERIFY_KAFKA_HOST:-localhost}"
     - bash scripts/deploy/verify-stack.sh
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
