@@ -1,10 +1,31 @@
 stages:
+  - lint
   - validate
   - deploy
+  - post_deploy_verify
 
-# Минимальная валидация: проверяем, что docker-compose.yml синтаксически корректен.
-# Полный end-to-end smoke-test (поднять Kafka и прогнать produce/consume) возможен,
-# но требует runner'а с Docker-in-Docker и настройкой privileged.
+# --- lint ---
+
+lint:shellcheck:
+  stage: lint
+  tags:
+    - kafka_infra
+  script:
+    - |
+      set -euo pipefail
+      docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
+        sh -c 'files=$(find /mnt/kafka-infrastructure/scripts -name "*.sh" -type f | sort); [ -z "$files" ] && exit 0; shellcheck $files'
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+# --- validate ---
+
+variables:
+  # Значения только для `docker compose config` (подстановка в docker-stack.yml)
+  CI_KAFKA_ADVERTISED_HOST: "127.0.0.1"
+  CI_KAFKA_KRAFT_CLUSTER_ID: "ci-validate-cluster-id-0123456789ab"
+
 validate:compose:
   stage: validate
   tags:
@@ -13,39 +34,129 @@ validate:compose:
     - docker version
     - cd kafka-infrastructure/docker
     - docker compose version
-    - docker compose config >/dev/null
+    - |
+      export KAFKA_ADVERTISED_HOST="${CI_KAFKA_ADVERTISED_HOST}"
+      export KAFKA_KRAFT_CLUSTER_ID="${CI_KAFKA_KRAFT_CLUSTER_ID}"
+      docker compose -f docker-compose.yml config >/dev/null
+    - |
+      export KAFKA_ADVERTISED_HOST="${CI_KAFKA_ADVERTISED_HOST}"
+      export KAFKA_KRAFT_CLUSTER_ID="${CI_KAFKA_KRAFT_CLUSTER_ID}"
+      docker compose -f docker-stack.yml config >/dev/null
+    - |
+      export KAFKA_UI_ADMIN_PASSWORD="${CI_KAFKA_UI_ADMIN_PASSWORD:-ci-placeholder}"
+      docker compose -f kafka-ui/docker-compose.yml config >/dev/null
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
 
-# Деплой в Swarm (shell-runner на Kafka-host / manager-нода).
-# Требования:
-# - GitLab Runner установлен на 185.28.85.126
-# - Runner имеет tag "kafka_infra"
-# - Runner пользователь имеет доступ к docker
-deploy:swarm_dev:
+# --- deploy ---
+
+deploy:swarm:
   stage: deploy
   tags:
     - kafka_infra
+  resource_group: kafka-prod
+  environment:
+    name: production
   when: manual
   script:
     - cd kafka-infrastructure
-    # Пишем .env из GitLab Variables (Settings → CI/CD → Variables)
+    # Preflight: обязательные переменные CI/CD
     - |
-      cat > .env <<'EOF'
+      set -euo pipefail
+      : "${KAFKA_PORT:?required}"
+      : "${SCHEMA_REGISTRY_PORT:?required}"
+      : "${KAFKA_KRAFT_CLUSTER_ID:?required}"
+      : "${KAFKA_ADVERTISED_HOST:?required}"
+      : "${STACK_NAME:?required}"
+    - |
+      cat > .env <<EOF
       KAFKA_PORT=${KAFKA_PORT}
       SCHEMA_REGISTRY_PORT=${SCHEMA_REGISTRY_PORT}
       KAFKA_NODE_ID=${KAFKA_NODE_ID}
       KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
       KAFKA_ADVERTISED_HOST=${KAFKA_ADVERTISED_HOST}
       STACK_NAME=${STACK_NAME}
+      KAFKA_CONTROLLER_QUORUM_VOTERS=${KAFKA_CONTROLLER_QUORUM_VOTERS}
+      KAFKA_DEFAULT_REPLICATION_FACTOR=${KAFKA_DEFAULT_REPLICATION_FACTOR}
+      KAFKA_MIN_INSYNC_REPLICAS=${KAFKA_MIN_INSYNC_REPLICAS}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR}
       EOF
-    # docker stack deploy не читает .env сам — поэтому экспортим переменные
     - set -a
     - . ./.env
     - set +a
     - docker info >/dev/null
-    - docker stack deploy --compose-file docker/docker-stack.yml "${STACK_NAME}"
+    - docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
+  artifacts:
+    name: "stack-manifest-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - kafka-infrastructure/docker/docker-stack.yml
+      - kafka-infrastructure/.env
+    expire_in: 30 days
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
 
+rollback:swarm:
+  stage: deploy
+  tags:
+    - kafka_infra
+  resource_group: kafka-prod
+  environment:
+    name: production
+  when: manual
+  needs: []
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - test -n "${ROLLBACK_COMMIT_SHA:-}" || (echo "ROLLBACK_COMMIT_SHA не задан" && exit 1)
+    - |
+      set -euo pipefail
+      : "${KAFKA_PORT:?required}"
+      : "${SCHEMA_REGISTRY_PORT:?required}"
+      : "${KAFKA_KRAFT_CLUSTER_ID:?required}"
+      : "${KAFKA_ADVERTISED_HOST:?required}"
+      : "${STACK_NAME:?required}"
+    - git fetch origin "${ROLLBACK_COMMIT_SHA}"
+    - git checkout "${ROLLBACK_COMMIT_SHA}" -- kafka-infrastructure/docker/docker-stack.yml
+    - cd kafka-infrastructure
+    - |
+      cat > .env <<EOF
+      KAFKA_PORT=${KAFKA_PORT}
+      SCHEMA_REGISTRY_PORT=${SCHEMA_REGISTRY_PORT}
+      KAFKA_NODE_ID=${KAFKA_NODE_ID}
+      KAFKA_KRAFT_CLUSTER_ID=${KAFKA_KRAFT_CLUSTER_ID}
+      KAFKA_ADVERTISED_HOST=${KAFKA_ADVERTISED_HOST}
+      STACK_NAME=${STACK_NAME}
+      KAFKA_CONTROLLER_QUORUM_VOTERS=${KAFKA_CONTROLLER_QUORUM_VOTERS}
+      KAFKA_DEFAULT_REPLICATION_FACTOR=${KAFKA_DEFAULT_REPLICATION_FACTOR}
+      KAFKA_MIN_INSYNC_REPLICAS=${KAFKA_MIN_INSYNC_REPLICAS}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR}
+      EOF
+    - set -a
+    - . ./.env
+    - set +a
+    - docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+
+# --- post deploy ---
+
+verify:stack:
+  stage: post_deploy_verify
+  tags:
+    - kafka_infra
+  needs:
+    - job: deploy:swarm
+      artifacts: true
+  script:
+    - cd kafka-infrastructure
+    - set -a
+    - . ./.env
+    - set +a
+    - bash scripts/deploy/verify-stack.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'

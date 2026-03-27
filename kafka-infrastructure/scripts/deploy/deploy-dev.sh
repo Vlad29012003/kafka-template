@@ -16,7 +16,13 @@ fi
 
 docker compose --env-file "${ROOT_DIR}/.env" up -d
 
+set -a
+# shellcheck source=/dev/null
+source "${ROOT_DIR}/.env"
+set +a
+
 echo "[deploy-dev] Готово. Проверка:"
 echo "  - Kafka: localhost:${KAFKA_PORT:-9092}"
 echo "  - Schema Registry: http://localhost:${SCHEMA_REGISTRY_PORT:-8081}"
+echo "  - Kafka UI (опционально): из docker/kafka-ui: docker compose --env-file ../../.env up -d → http://localhost:${KAFKA_UI_PORT:-8080}"
 
