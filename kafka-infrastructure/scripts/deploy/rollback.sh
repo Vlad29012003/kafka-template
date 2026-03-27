@@ -30,6 +30,7 @@ if [[ -n "${1:-}" ]]; then
     exit 1
   fi
 elif [[ -n "${ROLLBACK_COMMIT_SHA:-}" ]]; then
+  # Вся работа с remote (fetch --prune, cat-file, запасной fetch) — только в resolve-rollback-commit.sh
   REPO_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
   bash "${ROOT_DIR}/scripts/deploy/resolve-rollback-commit.sh" "${ROLLBACK_COMMIT_SHA}"
   git -C "${REPO_ROOT}" checkout "${ROLLBACK_COMMIT_SHA}" -- kafka-infrastructure/docker/docker-stack.yml
@@ -40,4 +41,4 @@ else
 fi
 
 echo "[rollback] docker stack deploy из ${COMPOSE_FILE} (stack=${STACK_NAME})..."
-docker stack deploy --with-registry-auth --compose-file "${COMPOSE_FILE}" "${STACK_NAME}"
+docker stack deploy --with-registry-auth --prune --compose-file "${COMPOSE_FILE}" "${STACK_NAME}"
