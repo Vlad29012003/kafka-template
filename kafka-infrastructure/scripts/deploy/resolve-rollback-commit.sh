@@ -19,12 +19,14 @@ if git cat-file -e "${SHA}^{commit}" 2>/dev/null; then
   exit 0
 fi
 
-if ! git fetch origin "${SHA}"; then
-  echo "[resolve-commit] предупреждение: git fetch origin ${SHA} завершился с ошибкой" >&2
+# Одиночный fetch по SHA часто не находит remote ref — тогда подтягиваем всё с origin.
+if ! git fetch -q origin "${SHA}" 2>/dev/null; then
+  echo "[resolve-commit] git fetch origin ${SHA} недоступен, выполняем полный git fetch origin..." >&2
+  git fetch origin
 fi
 
 if ! git cat-file -e "${SHA}^{commit}" 2>/dev/null; then
-  echo "[resolve-commit] коммит недоступен локально: ${SHA}" >&2
+  echo "[resolve-commit] коммит недоступен локально после fetch: ${SHA}" >&2
   exit 1
 fi
 

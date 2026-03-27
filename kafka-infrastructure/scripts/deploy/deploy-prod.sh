@@ -27,7 +27,7 @@ STACK_NAME="${STACK_NAME:-kafka}"
 : "${STACK_NAME:?укажите STACK_NAME в .env}"
 
 echo "[deploy-prod] Деплой stack '${STACK_NAME}'..."
-docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
+docker stack deploy --with-registry-auth --prune --compose-file docker/docker-stack.yml "${STACK_NAME}"
 
 echo "[deploy-prod] Готово. Проверка:"
 echo "  docker stack services ${STACK_NAME}"

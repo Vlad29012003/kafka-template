@@ -74,7 +74,7 @@ deploy:swarm:
     - set +a
     - docker info >/dev/null
     - bash scripts/deploy/ensure-kafka-node-label.sh
-    - docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
+    - docker stack deploy --with-registry-auth --prune --compose-file docker/docker-stack.yml "${STACK_NAME}"
     - |
       printf '{"ci_commit_sha":"%s","stack_name":"%s","manifest":"docker/docker-stack.yml"}\n' \
         "${CI_COMMIT_SHA}" "${STACK_NAME}" > docker/deploy-manifest.json
@@ -115,7 +115,7 @@ rollback:swarm:
     - . ./.env
     - set +a
     - bash scripts/deploy/ensure-kafka-node-label.sh
-    - docker stack deploy --with-registry-auth --compose-file docker/docker-stack.yml "${STACK_NAME}"
+    - docker stack deploy --with-registry-auth --prune --compose-file docker/docker-stack.yml "${STACK_NAME}"
   rules:
     - if: '$CI_COMMIT_BRANCH == "dev"'
 
